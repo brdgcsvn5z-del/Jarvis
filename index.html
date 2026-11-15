@@ -538,8 +538,8 @@ function speak(text) {
   return new Promise(resolve => {
     if (!("speechSynthesis" in window)) return resolve();
     const u = new SpeechSynthesisUtterance(plain(text).slice(0, 1500));
-    const v = speechSynthesis.getVoices().find(v => v.name === settings.voice);
-    if (v) u.voice = v;
+    const v = speechSynthesis.getVoices().find(v => v.name === settings.voice) || indianLady();
+    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-IN";
     u.rate = 1.05;
     let done = false, started = Date.now();
     const finish = () => { if (done) return; done = true; speaking = false; finishSpeech = null; clearInterval(poll); resolve(); };
@@ -552,10 +552,23 @@ function speak(text) {
   });
 }
 function stopSpeaking() { if ("speechSynthesis" in window) speechSynthesis.cancel(); if (finishSpeech) finishSpeech(); }
+/* Prefer an Indian-English female voice: Edge "Neerja (Natural)", Windows "Heera", iPhone "Isha"/"Veena" */
+const LADIES = ["neerja", "swara", "heera", "kajal", "isha", "veena", "aditi", "raveena", "lekha", "kalpana", "female"];
+const MEN = ["rishi", "prabhat", "ravi", "hemant", "aarav", "madhur", "male"];
+function indianLady() {
+  const all = speechSynthesis.getVoices();
+  const inV = all.filter(v => /en[-_]IN/i.test(v.lang));
+  const score = v => { const n = v.name.toLowerCase(); let s = 0;
+    if (LADIES.some(x => n.includes(x)) && !n.includes("male ")) s += 10;
+    if (MEN.some(x => n.includes(x) && !(x === "male" && n.includes("female")))) s -= 20;
+    if (/natural|enhanced|premium|online/.test(n)) s += 5; return s; };
+  return inV.sort((a, b) => score(b) - score(a))[0] || null;
+}
 function fillVoices() {
   const sel = $("#sVoice"); if (!("speechSynthesis" in window)) return;
-  const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith("en"));
-  sel.innerHTML = `<option value="">Default</option>` + voices.map(v => `<option ${v.name === settings.voice ? "selected" : ""}>${esc(v.name)}</option>`).join("");
+  const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith("en")).sort((a, b) => (/IN/.test(b.lang) - /IN/.test(a.lang)));
+  const auto = indianLady();
+  sel.innerHTML = `<option value="">Auto: Indian English lady${auto ? " (" + esc(auto.name) + ")" : " (none installed yet)"}</option>` + voices.map(v => `<option value="${esc(v.name)}" ${v.name === settings.voice ? "selected" : ""}>${esc(v.name)} · ${esc(v.lang)}</option>`).join("");
 }
 if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = fillVoices;
 
