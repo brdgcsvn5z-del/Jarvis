@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>Jarvis</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Jarvis">
+<meta name="theme-color" content="#080e1c">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+:root{--bg:#080e1c;--panel:#0f1a30;--panel2:#16233f;--line:#22345a;--text:#e6eefc;--muted:#8ea3c7;--accent:#25c2ff;--accent2:#0a84d6;--danger:#ff5d6c}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{display:flex;flex-direction:column;height:100dvh}
+header{display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;border-bottom:1px solid var(--line);background:rgba(8,14,28,.95)}
+.orb{width:30px;height:30px;border-radius:50%;background:radial-gradient(circle,#7fe6ff 0 30%,#0a84d6 31% 45%,transparent 46%),radial-gradient(circle,transparent 0 60%,#25c2ff 61% 68%,transparent 69%);box-shadow:0 0 14px #25c2ff88}
+.orb.busy{animation:pulse 1s infinite ease-in-out}
+@keyframes pulse{50%{transform:scale(1.15);box-shadow:0 0 24px #25c2ffcc}}
+header h1{font-size:19px;margin:0;font-weight:650;letter-spacing:.5px;flex:1}
+.iconbtn{background:none;border:0;color:var(--muted);font-size:22px;padding:6px 8px;cursor:pointer;border-radius:10px}
+.iconbtn:hover{background:var(--panel)}
+.iconbtn.on{color:var(--accent)}
+#chat{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;max-width:820px;width:100%;margin:0 auto}
+.msg{max-width:88%;padding:10px 13px;border-radius:16px;white-space:normal;word-wrap:break-word}
+.msg.user{align-self:flex-end;background:var(--accent2);border-bottom-right-radius:5px}
+.msg.bot{align-self:flex-start;background:var(--panel);border:1px solid var(--line);border-bottom-left-radius:5px}
+.msg.note{align-self:center;color:var(--muted);font-size:13px;background:none;padding:2px}
+.msg p{margin:.3em 0}.msg ul,.msg ol{margin:.3em 0;padding-left:1.3em}
+.msg a{color:var(--accent)}
+.msg code{background:#0006;padding:1px 5px;border-radius:5px}
+.card{align-self:flex-start;max-width:88%;width:420px;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:12px}
+.card h3{margin:0 0 6px;font-size:14px;color:var(--accent);text-transform:uppercase;letter-spacing:.6px}
+.card .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.card input,.card textarea{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px;font:inherit;margin-top:6px}
+.card textarea{min-height:120px;resize:vertical}
+.btn{background:var(--accent2);color:#fff;border:0;border-radius:10px;padding:8px 12px;font:inherit;font-size:14px;cursor:pointer;text-decoration:none;display:inline-block}
+.btn.alt{background:var(--panel);border:1px solid var(--line)}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:8px 14px 0;max-width:820px;width:100%;margin:0 auto;scrollbar-width:none}
+.chip{flex:none;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:20px;padding:7px 12px;font-size:14px;cursor:pointer;white-space:nowrap}
+footer{padding:10px 12px calc(env(safe-area-inset-bottom) + 10px);max-width:820px;width:100%;margin:0 auto;display:flex;gap:8px;align-items:flex-end}
+#input{flex:1;resize:none;max-height:140px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:20px;padding:10px 14px;font:inherit;outline:none}
+#input:focus{border-color:var(--accent2)}
+.round{width:44px;height:44px;flex:none;border-radius:50%;border:0;font-size:20px;cursor:pointer;background:var(--panel);color:var(--text);border:1px solid var(--line)}
+#send{background:var(--accent2);border:0}
+#mic.listening{background:var(--danger);border-color:var(--danger);animation:pulse 1s infinite}
+.typing span{display:inline-block;width:7px;height:7px;margin:0 2px;border-radius:50%;background:var(--muted);animation:b 1.2s infinite}
+.typing span:nth-child(2){animation-delay:.15s}.typing span:nth-child(3){animation-delay:.3s}
+@keyframes b{40%{transform:translateY(-5px);opacity:.5}}
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:16px;width:min(520px,94vw);padding:18px;max-height:88vh}
+dialog::backdrop{background:#000a}
+dialog label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
+dialog input,dialog select,dialog textarea{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px;font:inherit}
+dialog h2{margin:0 0 4px;font-size:18px}
+.small{font-size:12.5px;color:var(--muted)}
+.list{margin:6px 0;padding:0;list-style:none}
+.list li{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
+.list li span{flex:1}
+.list li button{background:none;border:0;color:var(--danger);cursor:pointer;font-size:16px}
+</style>
+</head>
+<body>
+<header>
+  <div class="orb" id="orb"></div>
+  <h1>Jarvis</h1>
+  <button class="iconbtn" id="speakToggle" title="Voice replies">🔊</button>
+  <button class="iconbtn" id="newChat" title="New chat">✚</button>
+  <button class="iconbtn" id="openSettings" title="Settings">⚙︎</button>
+</header>
+
+<main id="chat"></main>
+
+<div class="chips" id="chips">
+  <button class="chip" data-p="Give me my briefing for today: date, weather where I am, my open tasks, and anything I should keep in mind.">☀️ Briefing</button>
+  <button class="chip" data-p="What should I wear today? Check the weather where I am first. Ask me where I'm going if you need to.">👕 Outfit</button>
+  <button class="chip" data-p="Find me 3-5 good budget-friendly places to eat near me right now. Use my location.">🍜 Food nearby</button>
+  <button class="chip" data-p="Check the grammar of this and give me a corrected version: ">✍️ Grammar</button>
+  <button class="chip" data-p="Help me draft an email: ">✉️ Email</button>
+  <button class="chip" data-p="Help me plan a trip: ">✈️ Trip</button>
+  <button class="chip" data-p="Show my tasks.">✅ Tasks</button>
+</div>
+
+<footer>
+  <button class="round" id="mic" title="Talk">🎤</button>
+  <textarea id="input" rows="1" placeholder="Ask Jarvis anything…"></textarea>
+  <button class="round" id="send" title="Send">➤</button>
+</footer>
+
+<dialog id="settings">
+  <h2>Settings</h2>
+  <div class="small">Everything here is saved only on this device.</div>
+  <label>Anthropic API key</label>
+  <input id="sKey" type="password" placeholder="sk-ant-..." autocomplete="off">
+  <div class="small">Get one at console.anthropic.com → API Keys.</div>
+  <label>Your name</label>
+  <input id="sName" placeholder="e.g. Nitish">
+  <label>Home city</label>
+  <input id="sCity" placeholder="e.g. Dubai, UAE">
+  <label>AI model</label>
+  <select id="sModel">
+    <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (balanced, recommended)</option>
+    <option value="claude-haiku-5-5">Claude Haiku 5.5 (fastest, cheapest)</option>
+    <option value="claude-opus-5-5">Claude Opus 5.5 (smartest, priciest)</option>
+  </select>
+  <label>Voice for replies</label>
+  <select id="sVoice"></select>
+  <label>Things Jarvis remembers about you</label>
+  <ul class="list" id="memList"></ul>
+  <label>Tasks</label>
+  <ul class="list" id="taskList"></ul>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+    <button class="btn alt" id="sClose">Cancel</button>
+    <button class="btn" id="sSave">Save</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+/* ---------- storage ---------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("jarvis." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("jarvis." + k, JSON.stringify(v)); } catch {} }
+};
+let settings = Object.assign({ key: "", name: "", city: "", model: "claude-sonnet-5-5", voice: "", speak: true }, store.get("settings", {}));
+let tasks = store.get("tasks", []);       // {id,text,due,done}
+let memory = store.get("memory", []);     // strings
+let history = [];                          // Anthropic API messages
+let lastCoords = null;
+
+/* ---------- DOM helpers ---------- */
+const $ = s => document.querySelector(s);
+const chat = $("#chat"), input = $("#input"), orb = $("#orb");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function scrollDown() { chat.scrollTop = chat.scrollHeight; }
+
+function md(text) {
+  const lines = esc(text).split("\n");
+  let html = "", list = null;
+  const inline = s => s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<i>$2</i>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  const close = () => { if (list) { html += `</${list}>`; list = null; } };
+  for (const raw of lines) {
+    const l = raw.trimEnd();
+    let m;
+    if ((m = l.match(/^\s*[-*•]\s+(.*)/))) { if (list !== "ul") { close(); html += "<ul>"; list = "ul"; } html += `<li>${inline(m[1])}</li>`; }
+    else if ((m = l.match(/^\s*\d+[.)]\s+(.*)/))) { if (list !== "ol") { close(); html += "<ol>"; list = "ol"; } html += `<li>${inline(m[1])}</li>`; }
+    else if ((m = l.match(/^#{1,4}\s+(.*)/))) { close(); html += `<p><b>${inline(m[1])}</b></p>`; }
+    else if (!l.trim()) { close(); }
+    else { close(); html += `<p>${inline(l)}</p>`; }
+  }
+  close();
+  return html;
+}
+
+function addMsg(role, text) {
+  const d = document.createElement("div");
+  d.className = "msg " + role;
+  if (role === "bot") d.innerHTML = md(text); else d.textContent = text;
+  chat.appendChild(d); scrollDown(); return d;
+}
+function addCard(title, bodyEl) {
+  const c = document.createElement("div");
+  c.className = "card";
+  c.innerHTML = `<h3>${esc(title)}</h3>`;
+  c.appendChild(bodyEl);
+  chat.appendChild(c); scrollDown(); return c;
+}
+function el(html) { const t = document.createElement("div"); t.innerHTML = html; return t; }
+function linkBtn(label, href, alt) {
+  const a = document.createElement("a");
+  a.className = "btn" + (alt ? " alt" : ""); a.textContent = label; a.href = href; a.target = "_blank"; a.rel = "noopener";
+  return a;
+}
+let typingEl = null;
+function setBusy(b) {
+  orb.classList.toggle("busy", b);
+  if (b && !typingEl) { typingEl = el('<span></span><span></span><span></span>'); typingEl.className = "msg bot typing"; chat.appendChild(typingEl); scrollDown(); }
+  if (!b && typingEl) { typingEl.remove(); typingEl = null; }
+}
+
+/* ---------- date helpers ---------- */
+const pad = n => String(n).padStart(2, "0");
+function parseLocal(s) { // "2026-11-20T15:00" or "2026-11-20"
+  if (!s) return null;
+  const m = String(s).match(/(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+  if (!m) return null;
+  return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0));
+}
+const stamp = d => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+const dstamp = d => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+const isoLocal = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+
+/* ---------- tools Jarvis can use on your device ---------- */
+const TOOLS = [
+  { type: "web_search_20250305", name: "web_search", max_uses: 5 },
+  { name: "get_location", description: "Get the user's current GPS location (latitude/longitude). Use before finding nearby places, routes from current position, or local weather.", input_schema: { type: "object", properties: {} } },
+  { name: "get_weather", description: "Current weather and today's/tomorrow's forecast. Give a city name, or omit to use the user's current location.", input_schema: { type: "object", properties: { city: { type: "string" } } } },
+  { name: "add_calendar_event", description: "Create a calendar event. Shows the user buttons to add it to Apple Calendar, Google Calendar or Outlook. Times are local time in format YYYY-MM-DDTHH:MM.", input_schema: { type: "object", properties: { title: { type: "string" }, start: { type: "string" }, end: { type: "string" }, all_day: { type: "boolean" }, location: { type: "string" }, notes: { type: "string" }, alert_minutes_before: { type: "integer" } }, required: ["title", "start"] } },
+  { name: "draft_email", description: "Show an email draft the user can edit and send via Mail app, Gmail or Outlook.", input_schema: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" } }, required: ["subject", "body"] } },
+  { name: "show_directions", description: "Show route buttons opening Apple Maps and Google Maps. Use after suggesting route options. mode: driving, walking, transit or cycling. Omit origin to start from current location.", input_schema: { type: "object", properties: { destination: { type: "string" }, origin: { type: "string" }, mode: { type: "string", enum: ["driving", "walking", "transit", "cycling"] } }, required: ["destination"] } },
+  { name: "add_task", description: "Add a to-do item to the user's task list.", input_schema: { type: "object", properties: { text: { type: "string" }, due: { type: "string", description: "optional YYYY-MM-DD" } }, required: ["text"] } },
+  { name: "list_tasks", description: "List the user's to-do items.", input_schema: { type: "object", properties: { include_done: { type: "boolean" } } } },
+  { name: "complete_task", description: "Mark a task done by its id.", input_schema: { type: "object", properties: { id: { type: "integer" } }, required: ["id"] } },
+  { name: "remember", description: "Save a lasting fact or preference about the user (e.g. favourite food, dress style, budget, allergies) so you know it in future chats. Only when the user shares something worth keeping or asks you to remember.", input_schema: { type: "object", properties: { fact: { type: "string" } }, required: ["fact"] } }
+];
+
+function getCoords() {
+  return new Promise(res => {
+    if (!navigator.geolocation) return res(null);
+    navigator.geolocation.getCurrentPosition(
+      p => { lastCoords = { lat: +p.coords.latitude.toFixed(4), lon: +p.coords.longitude.toFixed(4) }; res(lastCoords); },
+      () => res(null), { enableHighAccuracy: true, timeout: 12000, maximumAge: 300000 });
+  });
+}
+
+const WMO = { 0: "clear", 1: "mostly clear", 2: "partly cloudy", 3: "overcast", 45: "fog", 48: "fog", 51: "light drizzle", 53: "drizzle", 55: "heavy drizzle", 61: "light rain", 63: "rain", 65: "heavy rain", 71: "light snow", 73: "snow", 75: "heavy snow", 80: "rain showers", 81: "rain showers", 82: "violent showers", 95: "thunderstorm", 96: "thunderstorm with hail", 99: "thunderstorm with hail" };
+
+const runTool = {
+  async get_location() {
+    const c = await getCoords();
+    if (!c) return { error: "Location unavailable or permission denied. Ask the user where they are." };
+    let place = "";
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=16&lat=${c.lat}&lon=${c.lon}`);
+      const j = await r.json(); place = j.display_name || "";
+    } catch {}
+    return { ...c, approx_address: place };
+  },
+  async get_weather({ city }) {
+    let lat, lon, name = city;
+    if (city) {
+      const g = await (await fetch(`https://geocoding-api.open-meteo.com/v1/search?count=1&name=${encodeURIComponent(city.split(",")[0])}`)).json();
+      if (!g.results?.length) return { error: "City not found" };
+      ({ latitude: lat, longitude: lon } = g.results[0]); name = `${g.results[0].name}, ${g.results[0].country}`;
+    } else {
+      const c = lastCoords || await getCoords();
+      if (!c) { if (settings.city) return runTool.get_weather({ city: settings.city }); return { error: "No location. Ask the user for a city." }; }
+      lat = c.lat; lon = c.lon; name = "current location";
+    }
+    const w = await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,uv_index&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,uv_index_max&forecast_days=2&timezone=auto`)).json();
+    const d = w.daily;
+    return {
+      place: name,
+      now: { temp_c: w.current.temperature_2m, feels_like_c: w.current.apparent_temperature, humidity: w.current.relative_humidity_2m, wind_kmh: w.current.wind_speed_10m, uv: w.current.uv_index, sky: WMO[w.current.weather_code] || w.current.weather_code },
+      today: { high: d.temperature_2m_max[0], low: d.temperature_2m_min[0], rain_chance: d.precipitation_probability_max[0], sky: WMO[d.weather_code[0]], uv_max: d.uv_index_max[0] },
+      tomorrow: { high: d.temperature_2m_max[1], low: d.temperature_2m_min[1], rain_chance: d.precipitation_probability_max[1], sky: WMO[d.weather_code[1]] }
+    };
+  },
+  async add_calendar_event(a) {
+    const s = parseLocal(a.start);
+    if (!s) return { error: "Bad start time; use YYYY-MM-DDTHH:MM" };
+    const allDay = !!a.all_day || !/[T ]\d{2}:\d{2}/.test(a.start);
+    let e = parseLocal(a.end);
+    if (!e) e = allDay ? new Date(s.getTime() + 864e5) : new Date(s.getTime() + 36e5);
+    const icsEsc = t => String(t || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/[,;]/g, m => "\\" + m);
+    const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Jarvis//EN", "BEGIN:VEVENT",
+      `UID:${Date.now()}@jarvis`, `DTSTAMP:${stamp(new Date())}`,
+      allDay ? `DTSTART;VALUE=DATE:${dstamp(s)}` : `DTSTART:${stamp(s)}`,
+      allDay ? `DTEND;VALUE=DATE:${dstamp(e)}` : `DTEND:${stamp(e)}`,
+      `SUMMARY:${icsEsc(a.title)}`, a.location ? `LOCATION:${icsEsc(a.location)}` : "", a.notes ? `DESCRIPTION:${icsEsc(a.notes)}` : "",
+      a.alert_minutes_before != null ? `BEGIN:VALARM\r\nTRIGGER:-PT${+a.alert_minutes_before}M\r\nACTION:DISPLAY\r\nDESCRIPTION:${icsEsc(a.title)}\r\nEND:VALARM` : "",
+      "END:VEVENT", "END:VCALENDAR"].filter(Boolean).join("\r\n");
+    const icsUrl = "data:text/calendar;charset=utf-8," + encodeURIComponent(ics);
+    const gDates = allDay ? `${dstamp(s)}/${dstamp(e)}` : `${stamp(s)}/${stamp(e)}`;
+    const g = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(a.title)}&dates=${gDates}&details=${encodeURIComponent(a.notes || "")}&location=${encodeURIComponent(a.location || "")}`;
+    const o = `https://outlook.live.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=${encodeURIComponent(a.title)}&startdt=${encodeURIComponent(allDay ? isoLocal(s).slice(0, 10) : isoLocal(s))}&enddt=${encodeURIComponent(allDay ? isoLocal(e).slice(0, 10) : isoLocal(e))}&allday=${allDay}&body=${encodeURIComponent(a.notes || "")}&location=${encodeURIComponent(a.location || "")}`;
+    const when = allDay ? s.toDateString() : `${s.toDateString()} · ${s.toTimeString().slice(0, 5)}–${e.toTimeString().slice(0, 5)}`;
+    const body = el(`<div><b>${esc(a.title)}</b></div><div class="small">${esc(when)}${a.location ? " · " + esc(a.location) : ""}</div>`);
+    const row = document.createElement("div"); row.className = "row";
+    const apple = linkBtn(" Apple Calendar", icsUrl); apple.removeAttribute("target"); apple.download = "event.ics";
+    row.append(apple, linkBtn("Google", g, true), linkBtn("Outlook", o, true));
+    body.appendChild(row);
+    addCard("📅 Calendar event", body);
+    return { shown: true, note: "Event card shown with buttons for Apple Calendar, Google Calendar and Outlook. Tell the user to tap the one they use." };
+  },
+  async draft_email(a) {
+    const body = el(`<input class="to" placeholder="To"><input class="su" placeholder="Subject"><textarea class="bo"></textarea>`);
+    body.querySelector(".to").value = a.to || ""; body.querySelector(".su").value = a.subject || ""; body.querySelector(".bo").value = a.body || "";
+    const row = document.createElement("div"); row.className = "row";
+    const mk = (label, fn, alt) => { const b = document.createElement("button"); b.className = "btn" + (alt ? " alt" : ""); b.textContent = label; b.onclick = fn; return b; };
+    const v = () => ({ to: body.querySelector(".to").value, su: body.querySelector(".su").value, bo: body.querySelector(".bo").value });
+    const E = encodeURIComponent;
+    row.append(
+      mk("Mail app", () => { const x = v(); location.href = `mailto:${E(x.to)}?subject=${E(x.su)}&body=${E(x.bo)}`; }),
+      mk("Gmail", () => { const x = v(); window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${E(x.to)}&su=${E(x.su)}&body=${E(x.bo)}`, "_blank"); }, true),
+      mk("Outlook", () => { const x = v(); window.open(`https://outlook.live.com/mail/0/deeplink/compose?to=${E(x.to)}&subject=${E(x.su)}&body=${E(x.bo)}`, "_blank"); }, true),
+      mk("Copy", async (ev) => { const x = v(); try { await navigator.clipboard.writeText(`Subject: ${x.su}\n\n${x.bo}`); ev.target.textContent = "Copied ✓"; } catch {} }, true));
+    body.appendChild(row);
+    addCard("✉️ Email draft", body);
+    return { shown: true, note: "Editable draft shown with Mail app / Gmail / Outlook / Copy buttons. Don't repeat the full email in your reply." };
+  },
+  async show_directions(a) {
+    const mode = a.mode || "driving";
+    const E = encodeURIComponent;
+    const origin = a.origin || (lastCoords ? `${lastCoords.lat},${lastCoords.lon}` : "");
+    const appleFlag = { driving: "d", walking: "w", transit: "r", cycling: "c" }[mode];
+    const apple = `https://maps.apple.com/?daddr=${E(a.destination)}${origin ? "&saddr=" + E(origin) : ""}&dirflg=${appleFlag}`;
+    const google = `https://www.google.com/maps/dir/?api=1&destination=${E(a.destination)}${origin ? "&origin=" + E(origin) : ""}&travelmode=${mode === "cycling" ? "bicycling" : mode}`;
+    const body = el(`<div><b>${esc(a.destination)}</b></div><div class="small">${esc(mode)}${a.origin ? " from " + esc(a.origin) : " from your location"}</div>`);
+    const row = document.createElement("div"); row.className = "row";
+    row.append(linkBtn("Apple Maps", apple), linkBtn("Google Maps", google, true));
+    body.appendChild(row);
+    addCard("🗺️ Directions", body);
+    return { shown: true };
+  },
+  async add_task({ text, due }) {
+    const id = (tasks.reduce((m, t) => Math.max(m, t.id), 0) || 0) + 1;
+    tasks.push({ id, text, due: due || "", done: false }); store.set("tasks", tasks);
+    return { added: { id, text, due } };
+  },
+  async list_tasks({ include_done }) { return { tasks: tasks.filter(t => include_done || !t.done) }; },
+  async complete_task({ id }) {
+    const t = tasks.find(t => t.id === id); if (!t) return { error: "No task with that id" };
+    t.done = true; store.set("tasks", tasks); return { completed: t };
+  },
+  async remember({ fact }) {
+    if (!memory.includes(fact)) { memory.push(fact); store.set("memory", memory); }
+    return { saved: fact };
+  }
+};
+
+/* ---------- personality ---------- */
+function systemPrompt() {
+  const now = new Date();
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const open = tasks.filter(t => !t.done);
+  return `You are Jarvis, ${settings.name ? settings.name + "'s" : "the user's"} personal AI assistant, running as an app on their iPhone, iPad and Windows PC.
+
+Personality: casual, warm and friendly, like a sharp friend who's great at getting things done. Light humour is welcome, never forced. Talk naturally, not like a corporate bot.
+
+Style: replies are often read aloud and shown on a phone, so keep them short and conversational. Lead with the answer. Use short lists only when comparing options. Avoid tables. When you show a card (calendar, email, directions) don't repeat its contents.
+
+What you can do:
+- Search the web for anything current: news, prices, opening hours, tickets, flights, events, reviews, restaurants.
+- Check weather and the user's location; suggest outfits that fit the weather, occasion and their style.
+- Find budget-friendly eateries nearby (get location first, then search; give name, rough price per person, why it's good, distance if known).
+- Suggest route options (compare driving, metro/transit, taxi, walking with rough time/cost), then show_directions for the chosen or best one.
+- Plan trips and tours: itineraries, ticket options, budgets, what to book.
+- Add calendar events (works with Apple, Google and Outlook calendars) and reminders (use a calendar event with alert_minutes_before).
+- Draft emails, check grammar (show the corrected version, then briefly list key fixes).
+- Keep a to-do list and remember lasting preferences (use remember when the user shares something worth keeping).
+Never claim you did something you didn't. You can't read their inbox or calendar yet; if asked, say that's coming in a later version.
+
+Context:
+- Now: ${now.toLocaleString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })} (${tz})
+- Home city: ${settings.city || "unknown"}${lastCoords ? `\n- Last known location: ${lastCoords.lat}, ${lastCoords.lon}` : ""}
+- Open tasks: ${open.length ? open.map(t => `#${t.id} ${t.text}${t.due ? " (due " + t.due + ")" : ""}`).join("; ") : "none"}
+- Things you know about the user: ${memory.length ? memory.join("; ") : "nothing yet"}`;
+}
+
+/* ---------- talking to Claude ---------- */
+async function callClaude() {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": settings.key,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify({ model: settings.model, max_tokens: 2048, system: systemPrompt(), tools: TOOLS, messages: history })
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error?.message || `HTTP ${r.status}`);
+  return j;
+}
+
+function trimHistory() {
+  while (history.length > 40) {
+    history.shift();
+    while (history.length && !(history[0].role === "user" && typeof history[0].content === "string")) history.shift();
+  }
+}
+
+let busy = false;
+async function ask(text) {
+  text = text.trim();
+  if (!text || busy) return;
+  if (!settings.key) { openSettings(); addMsg("note", "Add your Anthropic API key in Settings first."); return; }
+  busy = true; stopSpeaking();
+  addMsg("user", text);
+  history.push({ role: "user", content: text });
+  trimHistory();
+  setBusy(true);
+  let spoken = "";
+  try {
+    for (let step = 0; step < 10; step++) {
+      const res = await callClaude();
+      history.push({ role: "assistant", content: res.content });
+      const said = res.content.filter(b => b.type === "text").map(b => b.text).join("").trim();
+      if (said) { setBusy(false); addMsg("bot", said); spoken += " " + said; }
+      if (res.stop_reason === "pause_turn") { setBusy(true); continue; }
+      const calls = res.content.filter(b => b.type === "tool_use");
+      if (res.stop_reason !== "tool_use" || !calls.length) break;
+      setBusy(true);
+      const results = [];
+      for (const c of calls) {
+        let out;
+        try { out = runTool[c.name] ? await runTool[c.name](c.input || {}) : { error: "Unknown tool" }; }
+        catch (e) { out = { error: String(e.message || e) }; }
+        results.push({ type: "tool_result", tool_use_id: c.id, content: JSON.stringify(out) });
+      }
+      history.push({ role: "user", content: results });
+    }
+  } catch (e) {
+    addMsg("note", "⚠️ " + e.message);
+    // roll back to a clean state so the next message works
+    while (history.length && !(history[history.length - 1].role === "assistant" && !history[history.length - 1].content.some?.(b => b.type === "tool_use"))) history.pop();
+  } finally {
+    setBusy(false); busy = false;
+    if (spoken && settings.speak) speak(spoken);
+  }
+}
+
+/* ---------- voice ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, listening = false;
+const micBtn = $("#mic");
+function startListening() {
+  if (!SR) { addMsg("note", "Voice input isn't supported in this browser. On iPhone use Safari; on PC use Edge or Chrome. You can also use the keyboard's mic button."); return; }
+  unlockSpeech(); stopSpeaking();
+  rec = new SR(); rec.lang = navigator.language || "en-US"; rec.interimResults = true; rec.continuous = false;
+  let finalText = "";
+  rec.onresult = e => {
+    let interim = ""; finalText = "";
+    for (const r of e.results) (r.isFinal ? (finalText += r[0].transcript) : (interim += r[0].transcript));
+    input.value = finalText + interim; autosize();
+  };
+  rec.onerror = e => { if (e.error !== "no-speech" && e.error !== "aborted") addMsg("note", "Mic error: " + e.error); };
+  rec.onend = () => { listening = false; micBtn.classList.remove("listening"); const t = input.value; if (t.trim()) { input.value = ""; autosize(); ask(t); } };
+  rec.start(); listening = true; micBtn.classList.add("listening");
+}
+micBtn.onclick = () => listening ? rec?.stop() : startListening();
+
+let speechUnlocked = false;
+function unlockSpeech() { if (!speechUnlocked && "speechSynthesis" in window) { speechSynthesis.speak(new SpeechSynthesisUtterance("")); speechUnlocked = true; } }
+function plain(t) { return t.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/https?:\/\/\S+/g, "").replace(/[*_#`>|]/g, "").replace(/\n+/g, ". "); }
+function speak(text) {
+  if (!("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(plain(text).slice(0, 1500));
+  const v = speechSynthesis.getVoices().find(v => v.name === settings.voice);
+  if (v) u.voice = v;
+  u.rate = 1.05;
+  speechSynthesis.speak(u);
+}
+function stopSpeaking() { if ("speechSynthesis" in window) speechSynthesis.cancel(); }
+function fillVoices() {
+  const sel = $("#sVoice"); if (!("speechSynthesis" in window)) return;
+  const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith("en"));
+  sel.innerHTML = `<option value="">Default</option>` + voices.map(v => `<option ${v.name === settings.voice ? "selected" : ""}>${esc(v.name)}</option>`).join("");
+}
+if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = fillVoices;
+
+/* ---------- UI wiring ---------- */
+function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 140) + "px"; }
+input.addEventListener("input", autosize);
+input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer:coarse)").matches) { e.preventDefault(); send(); } });
+function send() { unlockSpeech(); const t = input.value; input.value = ""; autosize(); ask(t); }
+$("#send").onclick = send;
+document.querySelectorAll(".chip").forEach(c => c.onclick = () => {
+  const p = c.dataset.p;
+  if (p.endsWith(": ")) { input.value = p; input.focus(); autosize(); } else { unlockSpeech(); ask(p); }
+});
+const speakBtn = $("#speakToggle");
+function renderSpeak() { speakBtn.textContent = settings.speak ? "🔊" : "🔇"; speakBtn.classList.toggle("on", settings.speak); }
+speakBtn.onclick = () => { settings.speak = !settings.speak; store.set("settings", settings); if (!settings.speak) stopSpeaking(); renderSpeak(); };
+$("#newChat").onclick = () => { history = []; chat.innerHTML = ""; stopSpeaking(); greet(); };
+
+const dlg = $("#settings");
+function renderLists() {
+  $("#memList").innerHTML = memory.length ? memory.map((m, i) => `<li><span>${esc(m)}</span><button data-m="${i}">✕</button></li>`).join("") : `<li class="small">Nothing yet</li>`;
+  $("#taskList").innerHTML = tasks.length ? tasks.map(t => `<li><span style="${t.done ? "text-decoration:line-through;opacity:.6" : ""}">${esc(t.text)}${t.due ? " · " + esc(t.due) : ""}</span><button data-t="${t.id}">✕</button></li>`).join("") : `<li class="small">No tasks</li>`;
+  dlg.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { memory.splice(+b.dataset.m, 1); store.set("memory", memory); renderLists(); });
+  dlg.querySelectorAll("[data-t]").forEach(b => b.onclick = () => { tasks = tasks.filter(t => t.id !== +b.dataset.t); store.set("tasks", tasks); renderLists(); });
+}
+function openSettings() {
+  $("#sKey").value = settings.key; $("#sName").value = settings.name; $("#sCity").value = settings.city; $("#sModel").value = settings.model;
+  fillVoices(); renderLists(); dlg.showModal();
+}
+$("#openSettings").onclick = openSettings;
+$("#sClose").onclick = () => dlg.close();
+$("#sSave").onclick = () => {
+  Object.assign(settings, { key: $("#sKey").value.trim(), name: $("#sName").value.trim(), city: $("#sCity").value.trim(), model: $("#sModel").value, voice: $("#sVoice").value });
+  store.set("settings", settings); dlg.close();
+  if (chat.children.length <= 1) { chat.innerHTML = ""; greet(); }
+};
+
+function greet() {
+  const h = new Date().getHours();
+  const part = h < 12 ? "Morning" : h < 17 ? "Afternoon" : "Evening";
+  if (!settings.key) addMsg("bot", `Hey! I'm Jarvis. Tap **⚙︎ Settings** and paste your Anthropic API key to get me running.`);
+  else addMsg("bot", `${part}${settings.name ? ", " + settings.name : ""}! What can I do for you? Tap 🎤 to talk, or pick a shortcut below.`);
+}
+
+renderSpeak(); greet();
+if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+</script>
+</body>
+</html>
