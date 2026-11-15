@@ -59,6 +59,7 @@ dialog h2{margin:0 0 4px;font-size:18px}
 .list{margin:6px 0;padding:0;list-style:none}
 .list li{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
 .list li span{flex:1}
+.list li.pick{cursor:pointer}.list li.pick:hover{background:var(--panel2)}
 .status{text-align:center;font-size:13.5px;padding:6px 10px;background:#0a2a44;color:#9fe3ff;border-bottom:1px solid var(--line);cursor:pointer}
 .status.hot{background:#0a84d6;color:#fff}
 .iconbtn.hf{color:#fff;background:var(--accent2)}
@@ -71,6 +72,7 @@ dialog h2{margin:0 0 4px;font-size:18px}
   <h1>Jarvis</h1>
   <button class="iconbtn" id="handsFree" title="Hands-free: say 'Jarvis'">👂</button>
   <button class="iconbtn" id="speakToggle" title="Voice replies">🔊</button>
+  <button class="iconbtn" id="openChats" title="Past chats">🕘</button>
   <button class="iconbtn" id="newChat" title="New chat">✚</button>
   <button class="iconbtn" id="openSettings" title="Settings">⚙︎</button>
 </header>
@@ -94,6 +96,12 @@ dialog h2{margin:0 0 4px;font-size:18px}
   <button class="round" id="send" title="Send">➤</button>
 </footer>
 
+<dialog id="chats">
+  <h2>Past chats</h2>
+  <ul class="list" id="chatList"></ul>
+  <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn alt" id="chatsClose">Close</button></div>
+</dialog>
+
 <dialog id="settings">
   <h2>Settings</h2>
   <div class="small">Everything here is saved only on this device.</div>
@@ -110,7 +118,19 @@ dialog h2{margin:0 0 4px;font-size:18px}
     <option value="claude-haiku-5-5">Claude Haiku 5.5 (fastest, cheapest)</option>
     <option value="claude-opus-5-5">Claude Opus 5.5 (smartest, priciest)</option>
   </select>
-  <label>Voice for replies</label>
+  <label>Online voice: Microsoft Azure Speech key (optional, best on iPhone/iPad)</label>
+  <input id="sAzKey" type="password" placeholder="Paste Azure Speech key" autocomplete="off">
+  <div style="display:flex;gap:8px;margin-top:6px">
+    <input id="sAzRegion" placeholder="Region, e.g. centralindia" style="flex:1">
+    <select id="sAzVoice" style="flex:1">
+      <option value="en-IN-NeerjaNeural">Neerja (Indian lady)</option>
+      <option value="en-IN-AashiNeural">Aashi (Indian lady)</option>
+      <option value="en-IN-AnanyaNeural">Ananya (Indian lady)</option>
+      <option value="en-IN-KavyaNeural">Kavya (Indian lady)</option>
+    </select>
+  </div>
+  <div class="small">When filled in, Jarvis uses this voice on every device. Leave empty to use the device's own voices below.</div>
+  <label>Device voice for replies</label>
   <div style="display:flex;gap:8px"><select id="sVoice" style="flex:1"></select><button class="btn" id="sTest" type="button">▶ Test</button></div>
   <div class="small" id="voiceInfo"></div>
   <label>Things Jarvis remembers about you</label>
@@ -130,7 +150,7 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem("jarvis." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem("jarvis." + k, JSON.stringify(v)); } catch {} }
 };
-let settings = Object.assign({ key: "", name: "", city: "", model: "claude-sonnet-5-5", voice: "", speak: true, handsFree: false }, store.get("settings", {}));
+let settings = Object.assign({ key: "", name: "", city: "", model: "claude-sonnet-5-5", voice: "", speak: true, handsFree: false, azKey: "", azRegion: "", azVoice: "en-IN-NeerjaNeural" }, store.get("settings", {}));
 let tasks = store.get("tasks", []);       // {id,text,due,done}
 let memory = store.get("memory", []);     // strings
 let history = [];                          // Anthropic API messages
@@ -165,7 +185,8 @@ function md(text) {
   return html;
 }
 
-function addMsg(role, text) {
+function addMsg(role, text, noSave) {
+  if ((role === "user" || role === "bot") && !noSave) transcript.push({ role, text });
   const d = document.createElement("div");
   d.className = "msg " + role;
   if (role === "bot") d.innerHTML = md(text); else d.textContent = text;
@@ -402,7 +423,9 @@ async function ask(text) {
   busy = true; stopSpeaking(); pauseRec();
   if (settings.handsFree) setStatus("Thinking…", true);
   addMsg("user", text);
-  history.push({ role: "user", content: text });
+  const lastH = history[history.length - 1];
+  if (lastH && lastH.role === "user" && typeof lastH.content === "string") lastH.content += "\n\n" + text;
+  else history.push({ role: "user", content: text });
   trimHistory();
   const turnStart = history.length - 1;
   const sys = systemPrompt(); // frozen for this whole turn
@@ -432,7 +455,7 @@ async function ask(text) {
     // roll back to a clean state so the next message works
     history.length = turnStart;
   } finally {
-    setBusy(false); busy = false;
+    setBusy(false); busy = false; saveChat();
     if (spoken && settings.speak) { setStatus("Speaking… (tap here to stop)", true); await speak(spoken); }
     if (settings.handsFree) { followUpUntil = Date.now() + 8000; startWake(); }
     else setStatus("");
@@ -546,7 +569,40 @@ let speechUnlocked = false;
 function unlockSpeech() { if (!speechUnlocked && "speechSynthesis" in window) { speechSynthesis.speak(new SpeechSynthesisUtterance("")); speechUnlocked = true; } }
 function plain(t) { return t.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/https?:\/\/\S+/g, "").replace(/[*_#`>|]/g, "").replace(/\n+/g, ". "); }
 let finishSpeech = null;
-function speak(text) {
+/* Online voice (Azure Neural TTS), played through Web Audio so iOS allows it */
+let azSource = null;
+function audioUnlock() {
+  try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state !== "running") audioCtx.resume(); } catch {}
+}
+document.addEventListener("pointerdown", audioUnlock, true);
+const xmlEsc = t => t.replace(/[<>&'"]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" }[c]));
+async function azureSpeak(text, voice) {
+  const r = await fetch(`https://${settings.azRegion}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+    method: "POST",
+    headers: { "Ocp-Apim-Subscription-Key": settings.azKey, "Content-Type": "application/ssml+xml", "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3" },
+    body: `<speak version="1.0" xml:lang="en-IN"><voice name="${voice || settings.azVoice}"><prosody rate="+5%">${xmlEsc(text)}</prosody></voice></speak>`
+  });
+  if (!r.ok) throw new Error("Azure voice error " + r.status + (r.status === 401 ? " (check key and region)" : ""));
+  audioUnlock();
+  const buf = await audioCtx.decodeAudioData(await r.arrayBuffer());
+  return new Promise(res => {
+    const src = audioCtx.createBufferSource(); src.buffer = buf; src.connect(audioCtx.destination);
+    azSource = src; src.onended = () => { if (azSource === src) azSource = null; res(); };
+    src.start();
+  });
+}
+async function speak(text) {
+  if (settings.azKey && settings.azRegion) {
+    speaking = true;
+    let stopped = false;
+    finishSpeech = () => { stopped = true; try { azSource && azSource.stop(); } catch {} azSource = null; };
+    try { await azureSpeak(plain(text).slice(0, 2500)); }
+    catch (e) { if (!stopped) { addMsg("note", "🔈 " + e.message + ". Using device voice."); speaking = false; finishSpeech = null; return deviceSpeak(text); } }
+    speaking = false; finishSpeech = null; return;
+  }
+  return deviceSpeak(text);
+}
+function deviceSpeak(text) {
   return new Promise(resolve => {
     if (!("speechSynthesis" in window)) return resolve();
     const u = new SpeechSynthesisUtterance(plain(text).slice(0, 1500));
@@ -589,14 +645,61 @@ function fillVoices() {
   sel.innerHTML = `<option value="">${auto ? "Auto: Indian English lady (" + esc(auto.name) + ")" : "Auto: device's English (India) voice"}</option>` + voices.map(v => `<option value="${esc(v.name)}" ${v.name === settings.voice ? "selected" : ""}>${esc(v.name)} · ${esc(v.lang)}</option>`).join("");
 }
 if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = fillVoices;
-$("#sTest").onclick = () => {
-  unlockSpeech(); stopSpeaking();
+$("#sTest").onclick = async () => {
+  unlockSpeech(); audioUnlock(); stopSpeaking();
+  const azKey = $("#sAzKey").value.trim(), azRegion = $("#sAzRegion").value.trim().toLowerCase().replace(/\s+/g, "");
+  if (azKey && azRegion) {
+    const old = { azKey: settings.azKey, azRegion: settings.azRegion };
+    Object.assign(settings, { azKey, azRegion });
+    try { await azureSpeak(`Hi${$("#sName").value ? " " + $("#sName").value : ""}, I'm Jarvis. This is how I'll sound.`, $("#sAzVoice").value); }
+    catch (e) { alertNote(e.message); }
+    Object.assign(settings, old);
+    return;
+  }
   const name = $("#sVoice").value;
   const v = speechSynthesis.getVoices().find(x => x.name === name) || indianLady();
   const u = new SpeechSynthesisUtterance(`Hi${settings.name ? " " + settings.name : ""}, I'm Jarvis. This is how I'll sound.`);
   if (v) { u.voice = v; u.lang = v.lang; }
   speechSynthesis.speak(u);
 };
+
+function alertNote(t) { const i = $("#voiceInfo"); i.textContent = "⚠️ " + t; }
+
+/* ---------- saved chats ---------- */
+let chatId = null, transcript = [];
+function newChatId() { return Date.now().toString(36); }
+function saveChat() {
+  if (!transcript.some(m => m.role === "user")) return;
+  const chats = store.get("chats", []).filter(c => c.id !== chatId);
+  const title = transcript.find(m => m.role === "user").text.slice(0, 60);
+  chats.unshift({ id: chatId, title, updated: Date.now(), t: transcript.slice(-120) });
+  store.set("chats", chats.slice(0, 50)); store.set("currentChat", chatId);
+}
+function rebuildHistory(t) {
+  const h = [];
+  for (const m of t) {
+    const role = m.role === "user" ? "user" : "assistant";
+    if (!h.length && role === "assistant") continue;
+    const last = h[h.length - 1];
+    if (last && last.role === role) last.content += "\n\n" + m.text; else h.push({ role, content: m.text });
+  }
+  return h;
+}
+function loadChat(c) {
+  stopSpeaking(); chat.innerHTML = ""; chatId = c.id; transcript = [];
+  for (const m of c.t) addMsg(m.role, m.text);
+  history = rebuildHistory(transcript); store.set("currentChat", chatId);
+}
+function startNewChat() { stopSpeaking(); history = []; transcript = []; chatId = newChatId(); chat.innerHTML = ""; store.set("currentChat", chatId); greet(); }
+const chatsDlg = $("#chats");
+function renderChats() {
+  const chats = store.get("chats", []);
+  $("#chatList").innerHTML = chats.length ? chats.map(c => `<li class="pick" data-open="${c.id}"><span>${esc(c.title)}<br><span class="small">${new Date(c.updated).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span></span><button data-del="${c.id}">✕</button></li>`).join("") : `<li class="small">No saved chats yet</li>`;
+  chatsDlg.querySelectorAll("[data-open]").forEach(li => li.onclick = e => { if (e.target.closest("[data-del]")) return; const c = store.get("chats", []).find(x => x.id === li.dataset.open); if (c) { loadChat(c); chatsDlg.close(); } });
+  chatsDlg.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { store.set("chats", store.get("chats", []).filter(c => c.id !== b.dataset.del)); if (b.dataset.del === chatId) startNewChat(); renderChats(); });
+}
+$("#openChats").onclick = () => { renderChats(); chatsDlg.showModal(); };
+$("#chatsClose").onclick = () => chatsDlg.close();
 
 /* ---------- UI wiring ---------- */
 function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 140) + "px"; }
@@ -611,7 +714,7 @@ document.querySelectorAll(".chip").forEach(c => c.onclick = () => {
 const speakBtn = $("#speakToggle");
 function renderSpeak() { speakBtn.textContent = settings.speak ? "🔊" : "🔇"; speakBtn.classList.toggle("on", settings.speak); }
 speakBtn.onclick = () => { settings.speak = !settings.speak; store.set("settings", settings); if (!settings.speak) stopSpeaking(); renderSpeak(); };
-$("#newChat").onclick = () => { history = []; chat.innerHTML = ""; stopSpeaking(); greet(); };
+$("#newChat").onclick = startNewChat;
 
 const dlg = $("#settings");
 function renderLists() {
@@ -622,24 +725,28 @@ function renderLists() {
 }
 function openSettings() {
   $("#sKey").value = settings.key; $("#sName").value = settings.name; $("#sCity").value = settings.city; $("#sModel").value = settings.model;
+  $("#sAzKey").value = settings.azKey; $("#sAzRegion").value = settings.azRegion; $("#sAzVoice").value = settings.azVoice;
   fillVoices(); renderLists(); dlg.showModal();
 }
 $("#openSettings").onclick = openSettings;
 $("#sClose").onclick = () => dlg.close();
 $("#sSave").onclick = () => {
-  Object.assign(settings, { key: $("#sKey").value.trim(), name: $("#sName").value.trim(), city: $("#sCity").value.trim(), model: $("#sModel").value, voice: $("#sVoice").value });
+  Object.assign(settings, { key: $("#sKey").value.trim(), name: $("#sName").value.trim(), city: $("#sCity").value.trim(), model: $("#sModel").value, voice: $("#sVoice").value,
+    azKey: $("#sAzKey").value.trim(), azRegion: $("#sAzRegion").value.trim().toLowerCase().replace(/\s+/g, ""), azVoice: $("#sAzVoice").value });
   store.set("settings", settings); dlg.close();
-  if (chat.children.length <= 1) { chat.innerHTML = ""; greet(); }
+  if (!transcript.length) { chat.innerHTML = ""; greet(); }
 };
 
 function greet() {
   const h = new Date().getHours();
   const part = h < 12 ? "Morning" : h < 17 ? "Afternoon" : "Evening";
-  if (!settings.key) addMsg("bot", `Hey! I'm Jarvis. Tap **⚙︎ Settings** and paste your Anthropic API key to get me running.`);
-  else addMsg("bot", `${part}${settings.name ? ", " + settings.name : ""}! What can I do for you? Tap 🎤 to talk, or pick a shortcut below.`);
+  if (!settings.key) addMsg("bot", `Hey! I'm Jarvis. Tap **⚙︎ Settings** and paste your Anthropic API key to get me running.`, true);
+  else addMsg("bot", `${part}${settings.name ? ", " + settings.name : ""}! What can I do for you? Tap 🎤 to talk, or pick a shortcut below.`, true);
 }
 
-renderSpeak(); greet();
+renderSpeak();
+{ const cur = store.get("chats", []).find(c => c.id === store.get("currentChat", null));
+  if (cur) loadChat(cur); else { chatId = newChatId(); greet(); } }
 if (settings.handsFree) { hfBtn.classList.add("hf"); startWake(); }
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
