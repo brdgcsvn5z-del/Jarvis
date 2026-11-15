@@ -59,6 +59,9 @@ dialog h2{margin:0 0 4px;font-size:18px}
 .list{margin:6px 0;padding:0;list-style:none}
 .list li{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
 .list li span{flex:1}
+.status{text-align:center;font-size:13.5px;padding:6px 10px;background:#0a2a44;color:#9fe3ff;border-bottom:1px solid var(--line);cursor:pointer}
+.status.hot{background:#0a84d6;color:#fff}
+.iconbtn.hf{color:#fff;background:var(--accent2)}
 .list li button{background:none;border:0;color:var(--danger);cursor:pointer;font-size:16px}
 </style>
 </head>
@@ -66,10 +69,12 @@ dialog h2{margin:0 0 4px;font-size:18px}
 <header>
   <div class="orb" id="orb"></div>
   <h1>Jarvis</h1>
+  <button class="iconbtn" id="handsFree" title="Hands-free: say 'Jarvis'">👂</button>
   <button class="iconbtn" id="speakToggle" title="Voice replies">🔊</button>
   <button class="iconbtn" id="newChat" title="New chat">✚</button>
   <button class="iconbtn" id="openSettings" title="Settings">⚙︎</button>
 </header>
+<div id="status" class="status" hidden></div>
 
 <main id="chat"></main>
 
@@ -124,7 +129,7 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem("jarvis." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem("jarvis." + k, JSON.stringify(v)); } catch {} }
 };
-let settings = Object.assign({ key: "", name: "", city: "", model: "claude-sonnet-5-5", voice: "", speak: true }, store.get("settings", {}));
+let settings = Object.assign({ key: "", name: "", city: "", model: "claude-sonnet-5-5", voice: "", speak: true, handsFree: false }, store.get("settings", {}));
 let tasks = store.get("tasks", []);       // {id,text,due,done}
 let memory = store.get("memory", []);     // strings
 let history = [];                          // Anthropic API messages
@@ -384,7 +389,8 @@ async function ask(text) {
   text = text.trim();
   if (!text || busy) return;
   if (!settings.key) { openSettings(); addMsg("note", "Add your Anthropic API key in Settings first."); return; }
-  busy = true; stopSpeaking();
+  busy = true; stopSpeaking(); pauseRec();
+  if (settings.handsFree) setStatus("Thinking…", true);
   addMsg("user", text);
   history.push({ role: "user", content: text });
   trimHistory();
@@ -415,42 +421,137 @@ async function ask(text) {
     while (history.length && !(history[history.length - 1].role === "assistant" && !history[history.length - 1].content.some?.(b => b.type === "tool_use"))) history.pop();
   } finally {
     setBusy(false); busy = false;
-    if (spoken && settings.speak) speak(spoken);
+    if (spoken && settings.speak) { setStatus("Speaking… (tap here to stop)", true); await speak(spoken); }
+    if (settings.handsFree) { followUpUntil = Date.now() + 8000; startWake(); }
+    else setStatus("");
   }
 }
 
 /* ---------- voice ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null, listening = false;
-const micBtn = $("#mic");
-function startListening() {
-  if (!SR) { addMsg("note", "Voice input isn't supported in this browser. On iPhone use Safari; on PC use Edge or Chrome. You can also use the keyboard's mic button."); return; }
-  unlockSpeech(); stopSpeaking();
-  rec = new SR(); rec.lang = navigator.language || "en-US"; rec.interimResults = true; rec.continuous = false;
-  let finalText = "";
-  rec.onresult = e => {
-    let interim = ""; finalText = "";
-    for (const r of e.results) (r.isFinal ? (finalText += r[0].transcript) : (interim += r[0].transcript));
-    input.value = finalText + interim; autosize();
-  };
-  rec.onerror = e => { if (e.error !== "no-speech" && e.error !== "aborted") addMsg("note", "Mic error: " + e.error); };
-  rec.onend = () => { listening = false; micBtn.classList.remove("listening"); const t = input.value; if (t.trim()) { input.value = ""; autosize(); ask(t); } };
-  rec.start(); listening = true; micBtn.classList.add("listening");
-}
-micBtn.onclick = () => listening ? rec?.stop() : startListening();
+const micBtn = $("#mic"), hfBtn = $("#handsFree"), statusEl = $("#status");
+let rec = null, recMode = "off";            // "off" | "manual" | "wake"
+let awaitingCommand = false, followUpUntil = 0, speaking = false, wakeLock = null, audioCtx = null;
+const WAKE = /\b(?:hey|hi|ok|okay)?\s*(?:jarvis|jarvas|javis|jarvi|jervis|garvis|jarviss)\b[\s,.!?]*/i;
 
+function setStatus(t, hot) { statusEl.hidden = !t; statusEl.textContent = t || ""; statusEl.classList.toggle("hot", !!hot); }
+function idleStatus() {
+  if (!settings.handsFree) return setStatus("");
+  if (awaitingCommand) setStatus("I'm listening…", true);
+  else if (Date.now() < followUpUntil) setStatus("Go ahead, I'm still listening…", true);
+  else setStatus('Hands-free on: say "Jarvis…"');
+}
+function beep() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.frequency.value = 880; g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.18);
+    o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.2);
+  } catch {}
+}
+function noSR() { addMsg("note", "Voice input isn't supported in this browser. On iPhone/iPad use Safari; on PC use Edge or Chrome."); }
+
+function pauseRec() { const r = rec; rec = null; recMode = "off"; micBtn.classList.remove("listening"); try { r && r.abort(); } catch {} }
+
+/* Tap-to-talk (when hands-free is off) */
+function startManual() {
+  if (!SR) return noSR();
+  unlockSpeech(); stopSpeaking(); pauseRec();
+  const r = new SR(); rec = r; recMode = "manual";
+  r.lang = navigator.language || "en-US"; r.interimResults = true; r.continuous = false;
+  r.onresult = e => { let t = ""; for (const x of e.results) t += x[0].transcript; input.value = t; autosize(); };
+  r.onerror = e => { if (!["no-speech", "aborted"].includes(e.error)) addMsg("note", "Mic error: " + e.error); };
+  r.onend = () => { if (rec !== r) return; rec = null; recMode = "off"; micBtn.classList.remove("listening"); const t = input.value; if (t.trim()) { input.value = ""; autosize(); ask(t); } };
+  try { r.start(); micBtn.classList.add("listening"); } catch {}
+}
+
+/* Hands-free: always listening for "Jarvis" while the app is open */
+function startWake() {
+  if (!settings.handsFree || busy || speaking || recMode === "wake") { idleStatus(); return; }
+  if (!SR) { noSR(); setHandsFree(false); return; }
+  pauseRec();
+  const r = new SR(); rec = r; recMode = "wake";
+  r.lang = navigator.language || "en-US"; r.interimResults = true; r.continuous = true;
+  r.onresult = e => {
+    if (busy || speaking) return;
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      const live = awaitingCommand || Date.now() < followUpUntil || WAKE.test(t);
+      if (!e.results[i].isFinal) { if (live) { input.value = t.replace(WAKE, "").trim(); autosize(); } continue; }
+      heard(t);
+    }
+  };
+  r.onerror = e => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") { setHandsFree(false); addMsg("note", "Microphone access was blocked. Allow the mic for this site, then tap 👂 again."); }
+  };
+  r.onend = () => { if (rec !== r) return; rec = null; recMode = "off"; if (settings.handsFree && !busy && !speaking && !document.hidden) setTimeout(startWake, 250); };
+  try { r.start(); } catch { setStatus("Tap 👂 to start hands-free listening"); return; }
+  idleStatus();
+}
+
+function heard(text) {
+  text = text.trim();
+  if (!text || busy || speaking) return;
+  const m = text.match(WAKE);
+  if (m) {
+    const cmd = text.slice(m.index + m[0].length).trim();
+    if (cmd.length > 2) return issue(cmd);
+    awaitingCommand = true; followUpUntil = 0; beep(); idleStatus();
+    setTimeout(() => { if (awaitingCommand && !busy) { awaitingCommand = false; idleStatus(); } }, 10000);
+    return;
+  }
+  if (awaitingCommand || Date.now() < followUpUntil) issue(text);
+}
+function issue(cmd) { awaitingCommand = false; followUpUntil = 0; input.value = ""; autosize(); ask(cmd); }
+
+async function keepAwake(on) {
+  try {
+    if (on && "wakeLock" in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => { wakeLock = null; }); }
+    if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch {}
+}
+function setHandsFree(on) {
+  settings.handsFree = on; store.set("settings", settings);
+  hfBtn.classList.toggle("hf", on);
+  awaitingCommand = false; followUpUntil = 0;
+  if (on) { unlockSpeech(); beep(); keepAwake(true); startWake(); }
+  else { pauseRec(); keepAwake(false); setStatus(""); }
+}
+hfBtn.onclick = () => setHandsFree(!settings.handsFree);
+micBtn.onclick = () => {
+  if (settings.handsFree) { unlockSpeech(); stopSpeaking(); awaitingCommand = true; beep(); startWake(); idleStatus(); return; }
+  recMode === "manual" ? rec?.stop() : startManual();
+};
+statusEl.onclick = () => { if (speaking) stopSpeaking(); else if (settings.handsFree && recMode !== "wake") startWake(); };
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { pauseRec(); }
+  else if (settings.handsFree) { keepAwake(true); startWake(); }
+});
+
+/* Speaking out loud */
 let speechUnlocked = false;
 function unlockSpeech() { if (!speechUnlocked && "speechSynthesis" in window) { speechSynthesis.speak(new SpeechSynthesisUtterance("")); speechUnlocked = true; } }
 function plain(t) { return t.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/https?:\/\/\S+/g, "").replace(/[*_#`>|]/g, "").replace(/\n+/g, ". "); }
+let finishSpeech = null;
 function speak(text) {
-  if (!("speechSynthesis" in window)) return;
-  const u = new SpeechSynthesisUtterance(plain(text).slice(0, 1500));
-  const v = speechSynthesis.getVoices().find(v => v.name === settings.voice);
-  if (v) u.voice = v;
-  u.rate = 1.05;
-  speechSynthesis.speak(u);
+  return new Promise(resolve => {
+    if (!("speechSynthesis" in window)) return resolve();
+    const u = new SpeechSynthesisUtterance(plain(text).slice(0, 1500));
+    const v = speechSynthesis.getVoices().find(v => v.name === settings.voice);
+    if (v) u.voice = v;
+    u.rate = 1.05;
+    let done = false, started = Date.now();
+    const finish = () => { if (done) return; done = true; speaking = false; finishSpeech = null; clearInterval(poll); resolve(); };
+    finishSpeech = finish;
+    u.onend = u.onerror = finish;
+    // iOS sometimes never fires onend; poll as a backup
+    const poll = setInterval(() => { if (Date.now() - started > 1500 && !speechSynthesis.speaking && !speechSynthesis.pending) finish(); }, 400);
+    speaking = true;
+    speechSynthesis.speak(u);
+  });
 }
-function stopSpeaking() { if ("speechSynthesis" in window) speechSynthesis.cancel(); }
+function stopSpeaking() { if ("speechSynthesis" in window) speechSynthesis.cancel(); if (finishSpeech) finishSpeech(); }
 function fillVoices() {
   const sel = $("#sVoice"); if (!("speechSynthesis" in window)) return;
   const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith("en"));
@@ -500,6 +601,7 @@ function greet() {
 }
 
 renderSpeak(); greet();
+if (settings.handsFree) { hfBtn.classList.add("hf"); startWake(); }
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
 </body>
