@@ -361,7 +361,16 @@ Context:
 }
 
 /* ---------- talking to Claude ---------- */
-async function callClaude() {
+// Reasoning ("thinking") blocks are tied to the exact system prompt they were made with.
+// Keep them only for the current turn (same prompt); strip them from earlier turns.
+function outgoing(turnStart) {
+  return history.map((m, i) => {
+    if (i >= turnStart || m.role !== "assistant" || !Array.isArray(m.content)) return m;
+    const c = m.content.filter(b => b.type !== "thinking" && b.type !== "redacted_thinking");
+    return { ...m, content: c.length ? c : [{ type: "text", text: "(done)" }] };
+  });
+}
+async function callClaude(sys, turnStart) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -370,7 +379,7 @@ async function callClaude() {
       "anthropic-version": "2023-06-01",
       "anthropic-dangerous-direct-browser-access": "true"
     },
-    body: JSON.stringify({ model: settings.model, max_tokens: 2048, system: systemPrompt(), tools: TOOLS, messages: history })
+    body: JSON.stringify({ model: settings.model, max_tokens: 4096, system: sys, tools: TOOLS, messages: outgoing(turnStart) })
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error?.message || `HTTP ${r.status}`);
@@ -394,11 +403,13 @@ async function ask(text) {
   addMsg("user", text);
   history.push({ role: "user", content: text });
   trimHistory();
+  const turnStart = history.length - 1;
+  const sys = systemPrompt(); // frozen for this whole turn
   setBusy(true);
   let spoken = "";
   try {
     for (let step = 0; step < 10; step++) {
-      const res = await callClaude();
+      const res = await callClaude(sys, turnStart);
       history.push({ role: "assistant", content: res.content });
       const said = res.content.filter(b => b.type === "text").map(b => b.text).join("").trim();
       if (said) { setBusy(false); addMsg("bot", said); spoken += " " + said; }
@@ -418,7 +429,7 @@ async function ask(text) {
   } catch (e) {
     addMsg("note", "⚠️ " + e.message);
     // roll back to a clean state so the next message works
-    while (history.length && !(history[history.length - 1].role === "assistant" && !history[history.length - 1].content.some?.(b => b.type === "tool_use"))) history.pop();
+    history.length = turnStart;
   } finally {
     setBusy(false); busy = false;
     if (spoken && settings.speak) { setStatus("Speaking… (tap here to stop)", true); await speak(spoken); }
