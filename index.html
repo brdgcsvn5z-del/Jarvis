@@ -111,7 +111,8 @@ dialog h2{margin:0 0 4px;font-size:18px}
     <option value="claude-opus-5-5">Claude Opus 5.5 (smartest, priciest)</option>
   </select>
   <label>Voice for replies</label>
-  <select id="sVoice"></select>
+  <div style="display:flex;gap:8px"><select id="sVoice" style="flex:1"></select><button class="btn" id="sTest" type="button">▶ Test</button></div>
+  <div class="small" id="voiceInfo"></div>
   <label>Things Jarvis remembers about you</label>
   <ul class="list" id="memList"></ul>
   <label>Tasks</label>
@@ -582,9 +583,19 @@ function fillVoices() {
   const sel = $("#sVoice"); if (!("speechSynthesis" in window)) return;
   const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith("en")).sort((a, b) => (/IN/.test(b.lang) - /IN/.test(a.lang)));
   const auto = indianLady();
+  const nIN = voices.filter(v => /en[-_]IN/i.test(v.lang)).map(v => v.name);
+  $("#voiceInfo").textContent = nIN.length ? `Indian English voices found: ${nIN.join(", ")}` : "No Indian English voices found on this device yet.";
   sel.innerHTML = `<option value="">${auto && /en[-_]IN/i.test(auto.lang) ? "Auto: Indian English lady (" + esc(auto.name) + ")" : "Auto: Indian lady not installed yet" + (auto ? " – using " + esc(auto.name) : "")}</option>` + voices.map(v => `<option value="${esc(v.name)}" ${v.name === settings.voice ? "selected" : ""}>${esc(v.name)} · ${esc(v.lang)}</option>`).join("");
 }
 if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = fillVoices;
+$("#sTest").onclick = () => {
+  unlockSpeech(); stopSpeaking();
+  const name = $("#sVoice").value;
+  const v = speechSynthesis.getVoices().find(x => x.name === name) || indianLady();
+  const u = new SpeechSynthesisUtterance(`Hi${settings.name ? " " + settings.name : ""}, I'm Jarvis. This is how I'll sound.`);
+  if (v) { u.voice = v; u.lang = v.lang; }
+  speechSynthesis.speak(u);
+};
 
 /* ---------- UI wiring ---------- */
 function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 140) + "px"; }
