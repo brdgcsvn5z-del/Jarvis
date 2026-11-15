@@ -576,8 +576,9 @@ function indianLady() {
     if (/natural|enhanced|premium|online/.test(n)) s += 5; return s; };
   const best = inV.sort((a, b) => score(b) - score(a))[0];
   if (best && score(best) >= 0) return best;
-  // no Indian lady installed: use any English female voice rather than a male one
-  return all.filter(v => v.lang.startsWith("en")).find(v => /samantha|karen|moira|tessa|serena|zira|aria|jenny|female|google uk english female/i.test(v.name)) || null;
+  // Safari may hide downloaded voices from websites. Return null so speak() just asks for
+  // lang "en-IN" and iPhone/iPad uses whichever English (India) voice is ticked in Settings.
+  return null;
 }
 function fillVoices() {
   const sel = $("#sVoice"); if (!("speechSynthesis" in window)) return;
@@ -585,7 +586,7 @@ function fillVoices() {
   const auto = indianLady();
   const nIN = voices.filter(v => /en[-_]IN/i.test(v.lang)).map(v => v.name);
   $("#voiceInfo").textContent = nIN.length ? `Indian English voices found: ${nIN.join(", ")}` : "No Indian English voices found on this device yet.";
-  sel.innerHTML = `<option value="">${auto && /en[-_]IN/i.test(auto.lang) ? "Auto: Indian English lady (" + esc(auto.name) + ")" : "Auto: Indian lady not installed yet" + (auto ? " – using " + esc(auto.name) : "")}</option>` + voices.map(v => `<option value="${esc(v.name)}" ${v.name === settings.voice ? "selected" : ""}>${esc(v.name)} · ${esc(v.lang)}</option>`).join("");
+  sel.innerHTML = `<option value="">${auto ? "Auto: Indian English lady (" + esc(auto.name) + ")" : "Auto: device's English (India) voice"}</option>` + voices.map(v => `<option value="${esc(v.name)}" ${v.name === settings.voice ? "selected" : ""}>${esc(v.name)} · ${esc(v.lang)}</option>`).join("");
 }
 if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = fillVoices;
 $("#sTest").onclick = () => {
